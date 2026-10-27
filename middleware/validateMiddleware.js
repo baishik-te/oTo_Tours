@@ -465,6 +465,31 @@ function validateResetPasswordPayload(req, res, next) {
   if (!body.email || !isValidEmail(body.email)) {
     errors.push('email is required and must be a valid email address');
   }
+  const otp = body.otp || body.otpCode;
+  if (!otp || typeof otp !== 'string' || !otp.trim()) {
+    errors.push('otp is required');
+  }
+  if (!body.newPassword || typeof body.newPassword !== 'string' || body.newPassword.length < 6) {
+    errors.push('newPassword is required and must be at least 6 characters');
+  }
+  if (body.confirmPassword && body.newPassword !== body.confirmPassword) {
+    errors.push('newPassword and confirmPassword do not match');
+  }
+
+  if (errors.length > 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation failed for password reset',
+      errors
+    });
+  }
+  next();
+}
+
+function validateChangePasswordPayload(req, res, next) {
+  const body = req.body || {};
+  const errors = [];
+
   if (!body.currentPassword || typeof body.currentPassword !== 'string' || !body.currentPassword.trim()) {
     errors.push('currentPassword is required');
   }
@@ -478,7 +503,7 @@ function validateResetPasswordPayload(req, res, next) {
   if (errors.length > 0) {
     return res.status(400).json({
       success: false,
-      message: 'Validation failed for password reset',
+      message: 'Validation failed for changing password',
       errors
     });
   }
@@ -565,6 +590,7 @@ module.exports = {
   validateHomeSectionPayload,
   validateForgotPasswordPayload,
   validateResetPasswordPayload,
+  validateChangePasswordPayload,
   validateAdminLoginPayload,
   validateAdminCreateUserPayload,
   validateUserStatusPayload

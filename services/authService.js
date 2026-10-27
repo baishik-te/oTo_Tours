@@ -68,12 +68,6 @@ class AuthService {
     return admin;
   }
 
-  /**
-   * Register a new public user:
-   * Only public users will register, not admin.
-   * Saves user to DB as role='guest', status='inactive', generates 10-minute OTP,
-   * sends OTP via SMTP, and returns guest JWT token.
-   */
   async registerUser(data) {
     const email = (data.email || '').toLowerCase().trim();
     const name = (data.name || '').trim();
@@ -173,11 +167,6 @@ class AuthService {
     };
   }
 
-  /**
-   * Verify OTP:
-   * Once user verifies OTP, status becomes 'active', role becomes 'user', emailVerified=true.
-   * OTP expires in 10 minutes.
-   */
   async verifyOtp(emailRaw, otpCodeRaw) {
     const email = (emailRaw || '').toLowerCase().trim();
     const otpCode = String(otpCodeRaw || '').trim();
@@ -273,10 +262,7 @@ class AuthService {
     };
   }
 
-  /**
-   * Resend OTP verification code via SMTP:
-   * Requires proper authentication.
-   */
+
   async resendOtp(emailRaw, caller) {
     const email = (emailRaw || '').toLowerCase().trim();
 
@@ -338,27 +324,14 @@ class AuthService {
     };
   }
 
-  /**
-   * Forgot Password route:
-   * Proper token authorization, with mail, so that no other user can access it.
-   * Generates a 10-minute OTP and sends via SMTP.
-   */
-  async forgotPassword(emailRaw, caller) {
+
+  async forgotPassword(emailRaw) {
     const email = (emailRaw || '').toLowerCase().trim();
 
-    if (!caller || !caller.authenticated) {
-      const err = new Error('Authorization token is required for forgot password request.');
-      err.statusCode = 401;
+    if (!email) {
+      const err = new Error('Email is required');
+      err.statusCode = 400;
       throw err;
-    }
-
-    if (caller.user && caller.user.email) {
-      const tokenEmail = caller.user.email.toLowerCase().trim();
-      if (tokenEmail !== email) {
-        const err = new Error('Access denied. Token does not match requested email address.');
-        err.statusCode = 403;
-        throw err;
-      }
     }
 
     const user = await User.findOne({ where: { email } });
@@ -391,36 +364,98 @@ class AuthService {
   }
 
   /**
-   * Reset Password route:
-   * Proper token authorization, with mail, so that no other user can access it.
-   * Requires correct current password.
+   * Reset Password route (Public / Unauthenticated):
+   * Accepts email, otp, and newPassword.
+   * Validates OTP and 10-minute expiration before updating password.
    */
-  async resetPassword(payload, caller) {
+  async resetPassword(payload) {
     const email = (payload.email || '').toLowerCase().trim();
-    const currentPassword = payload.currentPassword || '';
+    const otp = String(payload.otp || payload.otpCode || '').trim();
     const newPassword = payload.newPassword || '';
     const confirmPassword = payload.confirmPassword || '';
-
-    if (!caller || !caller.authenticated) {
-      const err = new Error('Authorization token is required to reset password.');
-      err.statusCode = 401;
-      throw err;
-    }
-
-    if (caller.user && caller.user.email) {
-      const tokenEmail = caller.user.email.toLowerCase().trim();
-      if (tokenEmail !== email) {
-        const err = new Error('Access denied. Token does not match requested email address.');
-        err.statusCode = 403;
-        throw err;
-      }
-    }
 
     if (!email) {
       const err = new Error('Email is required');
       err.statusCode = 400;
       throw err;
     }
+
+    if (!otp) {
+      const err = new Error('OTP code is required');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      const err = new Error('New password is required and must be at least 6 characters');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    if (confirmPassword && newPassword !== confirmPassword) {
+      const err = new Error('New password and confirm password do not match');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const user = await User.findOne({ where: { email } });
+    if (!user) {
+      const err = new Error(`User with email '${email}' not found`);
+      err.statusCode = 404;
+      throw err;
+    }
+
+    if (user.status === 'suspended') {
+      const err = new Error('Account is suspended. You cannot access this service.');
+      err.statusCode = 403;
+      throw err;
+    }
+
+    // Validate OTP expiration (10 minutes)
+    if (user.otpExpiresAt && new Date() > new Date(user.otpExpiresAt)) {
+      await user.update({ otpCode: null, otpExpiresAt: null });
+      const err = new Error('OTP verification code has expired (validity is 10 minutes). Please request a new OTP using forgot password.');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    // Validate OTP match
+    if (!user.otpCode || user.otpCode !== otp) {
+      const err = new Error('Invalid OTP verification code.');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+    await user.update({
+      password: hashedNewPassword,
+      otpCode: null,
+      otpExpiresAt: null
+    });
+
+    await emailService.sendPasswordResetSuccessEmail(email, user.name);
+
+    return {
+      success: true,
+      message: 'Password has been successfully reset. Please log in with your new password.'
+    };
+  }
+
+  /**
+   * Change Password route (Authenticated):
+   * Reserved exclusively for logged-in users updating active account settings.
+   * Requires Bearer token authorization and verifies current password.
+   */
+  async changePassword(payload, caller) {
+    if (!caller || !caller.authenticated) {
+      const err = new Error('Authentication required to change password. Please provide a valid Bearer token.');
+      err.statusCode = 401;
+      throw err;
+    }
+
+    const currentPassword = payload.currentPassword || '';
+    const newPassword = payload.newPassword || '';
+    const confirmPassword = payload.confirmPassword || '';
 
     if (!currentPassword) {
       const err = new Error('Current password is required');
@@ -446,9 +481,17 @@ class AuthService {
       throw err;
     }
 
-    const user = await User.findOne({ where: { email } });
+    // Identify user from caller token
+    let user = null;
+    if (caller.user && caller.user.id) {
+      user = await User.findByPk(caller.user.id);
+    }
+    if (!user && caller.user && caller.user.email) {
+      user = await User.findOne({ where: { email: caller.user.email.toLowerCase().trim() } });
+    }
+
     if (!user) {
-      const err = new Error(`User with email '${email}' not found`);
+      const err = new Error('User account not found');
       err.statusCode = 404;
       throw err;
     }
@@ -469,16 +512,14 @@ class AuthService {
 
     const hashedNewPassword = await bcrypt.hash(newPassword, 10);
     await user.update({
-      password: hashedNewPassword,
-      otpCode: null,
-      otpExpiresAt: null
+      password: hashedNewPassword
     });
 
-    await emailService.sendPasswordResetSuccessEmail(email, user.name);
+    await emailService.sendPasswordResetSuccessEmail(user.email, user.name);
 
     return {
       success: true,
-      message: 'Password has been successfully reset. Please log in with your new password.'
+      message: 'Password changed successfully.'
     };
   }
 
@@ -721,8 +762,8 @@ class AuthService {
             permissions: dbUser.role === 'admin'
               ? ['manage:tours', 'manage:categories', 'manage:events', 'manage:inquiries', 'manage:content', 'manage:users']
               : (isGuest
-                  ? ['view:tours', 'view:categories', 'view:events', 'submit:inquiries']
-                  : ['view:tours', 'view:categories', 'view:events', 'submit:inquiries', 'book:tours', 'view:profile'])
+                ? ['view:tours', 'view:categories', 'view:events', 'submit:inquiries']
+                : ['view:tours', 'view:categories', 'view:events', 'submit:inquiries', 'book:tours', 'view:profile'])
           };
         }
 
@@ -745,8 +786,8 @@ class AuthService {
           permissions: decoded.role === 'admin'
             ? ['manage:tours', 'manage:categories', 'manage:events', 'manage:inquiries', 'manage:content', 'manage:users']
             : (isGuest
-                ? ['view:tours', 'view:categories', 'view:events', 'submit:inquiries']
-                : ['view:tours', 'view:categories', 'view:events', 'submit:inquiries', 'book:tours', 'view:profile'])
+              ? ['view:tours', 'view:categories', 'view:events', 'submit:inquiries']
+              : ['view:tours', 'view:categories', 'view:events', 'submit:inquiries', 'book:tours', 'view:profile'])
         };
       } catch (jwtErr) {
         if (jwtErr.statusCode === 403) {

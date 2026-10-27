@@ -256,8 +256,7 @@ class PublicController {
   async forgotPassword(req, res, next) {
     try {
       const { email } = req.body;
-      const caller = req.user ? { authenticated: true, user: req.user } : await authService.parseSessionIdentity(req.headers);
-      const result = await authService.forgotPassword(email, caller);
+      const result = await authService.forgotPassword(email);
       return res.status(200).json(result);
     } catch (error) {
       next(error);
@@ -266,8 +265,17 @@ class PublicController {
 
   async resetPassword(req, res, next) {
     try {
+      const result = await authService.resetPassword(req.body);
+      return res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async changePassword(req, res, next) {
+    try {
       const caller = req.user ? { authenticated: true, user: req.user } : await authService.parseSessionIdentity(req.headers);
-      const result = await authService.resetPassword(req.body, caller);
+      const result = await authService.changePassword(req.body, caller);
       return res.status(200).json(result);
     } catch (error) {
       next(error);

@@ -4,9 +4,6 @@ const crypto = require('crypto');
 const { Op } = require('sequelize');
 const { sequelize, Blog } = require('../models');
 
-/**
- * Generate URL-friendly slug
- */
 function generateSlug(text) {
   return String(text || '')
     .toLowerCase()
@@ -16,9 +13,6 @@ function generateSlug(text) {
     .replace(/^-+|-+$/g, '');
 }
 
-/**
- * Format Date to "APRIL 8, 2025"
- */
 function formatDate(date) {
   if (!date) return '';
   const d = new Date(date);
@@ -29,9 +23,6 @@ function formatDate(date) {
   return `${month} ${day}, ${year}`;
 }
 
-/**
- * Format Time to "09:00 AM"
- */
 function formatTime(date) {
   if (!date) return '';
   const d = new Date(date);

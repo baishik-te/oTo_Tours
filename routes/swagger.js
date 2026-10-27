@@ -1124,10 +1124,9 @@ const swaggerDefinition = {
     },
     '/api/auth/forgot-password': {
       post: {
-        summary: 'Forgot Password Request (Requires token authorization with mail)',
-        description: 'Proper token authorization with mail verification so that no other user can access it. Dispatches a 10-minute password reset OTP via SMTP.',
+        summary: 'Forgot Password Request (Public / Unauthenticated)',
+        description: 'Public endpoint to initiate forgotten credentials recovery. Dispatches a 10-minute password reset OTP via SMTP.',
         tags: ['Authentication & OTP'],
-        security: [{ BearerAuth: [] }],
         requestBody: {
           required: true,
           content: {
@@ -1144,27 +1143,27 @@ const swaggerDefinition = {
         },
         responses: {
           200: { description: 'Password reset OTP dispatched' },
-          401: { description: 'Authentication required' },
-          403: { description: 'Forbidden - Token mismatch or suspended account' }
+          400: { description: 'Email is required' },
+          404: { description: 'User not found' },
+          403: { description: 'Forbidden - Account suspended' }
         }
       }
     },
     '/api/auth/reset-password': {
       post: {
-        summary: 'Reset Password (Requires token authorization and correct current password)',
-        description: 'Requires token authorization with matching mail and correct current password. Verifies current password before updating to new password.',
+        summary: 'Reset Password (Public / Unauthenticated with OTP)',
+        description: 'Public endpoint to reset password using email, 6-digit OTP code, and new password. Validates OTP and 10-minute expiration window before updating credentials and clearing OTP.',
         tags: ['Authentication & OTP'],
-        security: [{ BearerAuth: [] }],
         requestBody: {
           required: true,
           content: {
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['email', 'currentPassword', 'newPassword'],
+                required: ['email', 'otp', 'newPassword'],
                 properties: {
                   email: { type: 'string', format: 'email', example: 'sarah.connor@example.com' },
-                  currentPassword: { type: 'string', example: 'CurrentPassword123!' },
+                  otp: { type: 'string', example: '123456' },
                   newPassword: { type: 'string', minLength: 6, example: 'NewBrandPassword456!' },
                   confirmPassword: { type: 'string', example: 'NewBrandPassword456!' }
                 }
@@ -1174,9 +1173,39 @@ const swaggerDefinition = {
         },
         responses: {
           200: { description: 'Password reset successful' },
+          400: { description: 'Invalid or expired OTP, or validation error' },
+          404: { description: 'User not found' },
+          403: { description: 'Forbidden - Account suspended' }
+        }
+      }
+    },
+    '/api/auth/change-password': {
+      post: {
+        summary: 'Change Password (Authenticated logged-in user)',
+        description: 'Reserved exclusively for logged-in users updating active account settings. Requires Bearer Token authorization and verifies correct current password before applying changes.',
+        tags: ['Authentication & OTP'],
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['currentPassword', 'newPassword'],
+                properties: {
+                  currentPassword: { type: 'string', example: 'OldPassword123!' },
+                  newPassword: { type: 'string', minLength: 6, example: 'NewPassword456!' },
+                  confirmPassword: { type: 'string', example: 'NewPassword456!' }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: { description: 'Password changed successfully' },
           400: { description: 'Incorrect current password or invalid new password' },
           401: { description: 'Authentication required' },
-          403: { description: 'Forbidden - Token mismatch or suspended account' }
+          403: { description: 'Forbidden - Account suspended' }
         }
       }
     },

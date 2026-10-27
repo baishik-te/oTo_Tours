@@ -12,7 +12,8 @@ const {
   validateResendOtpPayload,
   validateNewsletterPayload,
   validateForgotPasswordPayload,
-  validateResetPasswordPayload
+  validateResetPasswordPayload,
+  validateChangePasswordPayload
 } = require('../middleware/validateMiddleware');
 const { requireAuth, blockSuspendedUsers } = require('../middleware/authMiddleware');
 
@@ -22,8 +23,9 @@ authRouter.use(blockSuspendedUsers);
 authRouter.post('/register', validateRegisterPayload, publicController.register.bind(publicController));
 authRouter.post('/verify-otp', validateOtpPayload, publicController.verifyOtp.bind(publicController));
 authRouter.post('/resend-otp', requireAuth, validateResendOtpPayload, publicController.resendOtp.bind(publicController));
-authRouter.post('/forgot-password', requireAuth, validateForgotPasswordPayload, publicController.forgotPassword.bind(publicController));
-authRouter.post('/reset-password', requireAuth, validateResetPasswordPayload, publicController.resetPassword.bind(publicController));
+authRouter.post('/forgot-password', validateForgotPasswordPayload, publicController.forgotPassword.bind(publicController));
+authRouter.post('/reset-password', validateResetPasswordPayload, publicController.resetPassword.bind(publicController));
+authRouter.post('/change-password', requireAuth, validateChangePasswordPayload, publicController.changePassword.bind(publicController));
 authRouter.post('/login', validateLoginPayload, publicController.login.bind(publicController));
 authRouter.post('/token', publicController.issueToken.bind(publicController));
 authRouter.get('/me', publicController.getMe.bind(publicController));
